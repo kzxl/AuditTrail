@@ -1,0 +1,6 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/AuditTrail.Tests/AuditTrail.Tests.csproj" />
+    <Project Path="src/AuditTrail/AuditTrail.csproj" />
+  </Folder>
+</Solution>
