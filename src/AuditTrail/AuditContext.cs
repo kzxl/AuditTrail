@@ -54,14 +54,40 @@ namespace AuditTrail
         }
 
         /// <summary>
+        /// Optional reason applied to all audit entries recorded within this context.
+        /// </summary>
+        public string CurrentAuditReason { get; set; }
+
+        /// <summary>
+        /// Optional transaction correlation identifier applied to all audit entries in this context.
+        /// </summary>
+        public string CurrentCorrelationId { get; set; }
+
+        /// <summary>
+        /// Tracks an insert operation with automated table and primary key resolution.
+        /// </summary>
+        public AuditContext TrackInsert<T>(T entity) where T : class
+        {
+            var entry = ChangeTracker.TrackInsert(entity, _userName, _options);
+            return AddEntry(entry);
+        }
+
+        /// <summary>
         /// Tracks an insert operation.
         /// </summary>
         public AuditContext TrackInsert<T>(T entity, string tableName, string primaryKey) where T : class
         {
             var entry = ChangeTracker.TrackInsert(entity, tableName, primaryKey, _userName, _options);
-            if (entry != null)
-                _pendingEntries.Add(entry);
-            return this;
+            return AddEntry(entry);
+        }
+
+        /// <summary>
+        /// Tracks a delete operation with automated table and primary key resolution.
+        /// </summary>
+        public AuditContext TrackDelete<T>(T entity) where T : class
+        {
+            var entry = ChangeTracker.TrackDelete(entity, _userName, _options);
+            return AddEntry(entry);
         }
 
         /// <summary>
@@ -70,9 +96,16 @@ namespace AuditTrail
         public AuditContext TrackDelete<T>(T entity, string tableName, string primaryKey) where T : class
         {
             var entry = ChangeTracker.TrackDelete(entity, tableName, primaryKey, _userName, _options);
-            if (entry != null)
-                _pendingEntries.Add(entry);
-            return this;
+            return AddEntry(entry);
+        }
+
+        /// <summary>
+        /// Tracks an update by comparing a snapshot with current entity state using automated table and key resolution.
+        /// </summary>
+        public AuditContext TrackUpdate<T>(Dictionary<string, object> snapshot, T current) where T : class
+        {
+            var entry = ChangeTracker.DetectChangesFromSnapshot(snapshot, current, _userName, _options);
+            return AddEntry(entry);
         }
 
         /// <summary>
@@ -86,9 +119,16 @@ namespace AuditTrail
         {
             var entry = ChangeTracker.DetectChangesFromSnapshot(
                 snapshot, current, tableName, primaryKey, _userName, _options);
-            if (entry != null)
-                _pendingEntries.Add(entry);
-            return this;
+            return AddEntry(entry);
+        }
+
+        /// <summary>
+        /// Tracks an update by comparing two entity instances using automated table and key resolution.
+        /// </summary>
+        public AuditContext TrackUpdate<T>(T original, T modified) where T : class
+        {
+            var entry = ChangeTracker.DetectChanges(original, modified, _userName, _options);
+            return AddEntry(entry);
         }
 
         /// <summary>
@@ -102,9 +142,7 @@ namespace AuditTrail
         {
             var entry = ChangeTracker.DetectChanges(
                 original, modified, tableName, primaryKey, _userName, _options);
-            if (entry != null)
-                _pendingEntries.Add(entry);
-            return this;
+            return AddEntry(entry);
         }
 
         /// <summary>
@@ -113,7 +151,15 @@ namespace AuditTrail
         public AuditContext AddEntry(AuditEntry entry)
         {
             if (entry != null)
+            {
+                if (string.IsNullOrEmpty(entry.AuditReason) && !string.IsNullOrEmpty(CurrentAuditReason))
+                    entry.AuditReason = CurrentAuditReason;
+
+                if (string.IsNullOrEmpty(entry.CorrelationId) && !string.IsNullOrEmpty(CurrentCorrelationId))
+                    entry.CorrelationId = CurrentCorrelationId;
+
                 _pendingEntries.Add(entry);
+            }
             return this;
         }
 

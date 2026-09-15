@@ -31,6 +31,79 @@ namespace AuditTrail
 
         /// <summary>Optional metadata (IP address, machine name, etc.)</summary>
         public string Metadata { get; set; }
+
+        /// <summary>Optional reason or business justification for this change.</summary>
+        public string AuditReason { get; set; }
+
+        /// <summary>Optional correlation identifier linking multiple changes in a single business transaction.</summary>
+        public string CorrelationId { get; set; }
+
+        /// <summary>
+        /// Serialized JSON representation of <see cref="Changes"/>, used for Single-Table storage mode.
+        /// </summary>
+        public string ChangesJson
+        {
+            get => _changesJson ?? BuildChangesJson();
+            set => _changesJson = value;
+        }
+        private string _changesJson;
+
+        /// <summary>
+        /// Generates a compact JSON string representing all field changes without external JSON dependencies.
+        /// </summary>
+        public string BuildChangesJson()
+        {
+            if (Changes == null || Changes.Count == 0)
+                return "[]";
+
+            var sb = new System.Text.StringBuilder(Changes.Count * 64);
+            sb.Append("[");
+            for (int i = 0; i < Changes.Count; i++)
+            {
+                if (i > 0) sb.Append(",");
+                var c = Changes[i];
+                sb.Append("{\"Field\":");
+                EscapeJsonString(sb, c.FieldName);
+                sb.Append(",\"Old\":");
+                EscapeJsonString(sb, c.OldValue);
+                sb.Append(",\"New\":");
+                EscapeJsonString(sb, c.NewValue);
+                sb.Append("}");
+            }
+            sb.Append("]");
+            return sb.ToString();
+        }
+
+        private static void EscapeJsonString(System.Text.StringBuilder sb, string str)
+        {
+            if (str == null)
+            {
+                sb.Append("null");
+                return;
+            }
+
+            sb.Append("\"");
+            foreach (char ch in str)
+            {
+                switch (ch)
+                {
+                    case '\\': sb.Append("\\\\"); break;
+                    case '\"': sb.Append("\\\""); break;
+                    case '\n': sb.Append("\\n"); break;
+                    case '\r': sb.Append("\\r"); break;
+                    case '\t': sb.Append("\\t"); break;
+                    case '\b': sb.Append("\\b"); break;
+                    case '\f': sb.Append("\\f"); break;
+                    default:
+                        if (ch < 32)
+                            sb.AppendFormat("\\u{0:X4}", (int)ch);
+                        else
+                            sb.Append(ch);
+                        break;
+                }
+            }
+            sb.Append("\"");
+        }
     }
 
     /// <summary>

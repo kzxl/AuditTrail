@@ -198,8 +198,8 @@ namespace AuditTrail
         {
             var insertSql = $@"
                 INSERT INTO [{_options.SchemaName}].[{_options.AuditTableName}]
-                    (TableName, PrimaryKey, Action, UserName, Timestamp, Metadata)
-                VALUES (@TableName, @PrimaryKey, @Action, @UserName, @Timestamp, @Metadata);
+                    (TableName, PrimaryKey, Action, UserName, Timestamp, Metadata, AuditReason, CorrelationId, ChangesJson)
+                VALUES (@TableName, @PrimaryKey, @Action, @UserName, @Timestamp, @Metadata, @AuditReason, @CorrelationId, @ChangesJson);
                 SELECT CAST(SCOPE_IDENTITY() AS BIGINT);";
 
             entry.Id = conn.ExecuteScalar<long>(insertSql, new
@@ -209,26 +209,28 @@ namespace AuditTrail
                 Action = (int)entry.Action,
                 entry.UserName,
                 entry.Timestamp,
-                entry.Metadata
+                entry.Metadata,
+                entry.AuditReason,
+                entry.CorrelationId,
+                ChangesJson = (_options.StorageMode == AuditStorageMode.SingleTableJson || _options.StorageMode == AuditStorageMode.Both)
+                    ? entry.ChangesJson
+                    : null
             }, tx);
 
-            if (entry.Changes != null && entry.Changes.Count > 0)
+            if (_options.StorageMode != AuditStorageMode.SingleTableJson && entry.Changes != null && entry.Changes.Count > 0)
             {
                 var detailSql = $@"
                     INSERT INTO [{_options.SchemaName}].[{_options.AuditDetailTableName}]
                         (AuditLogId, FieldName, OldValue, NewValue)
                     VALUES (@AuditLogId, @FieldName, @OldValue, @NewValue)";
 
-                foreach (var change in entry.Changes)
+                conn.Execute(detailSql, entry.Changes.Select(change => new
                 {
-                    conn.Execute(detailSql, new
-                    {
-                        AuditLogId = entry.Id,
-                        change.FieldName,
-                        change.OldValue,
-                        change.NewValue
-                    }, tx);
-                }
+                    AuditLogId = entry.Id,
+                    change.FieldName,
+                    change.OldValue,
+                    change.NewValue
+                }), tx);
             }
         }
 
@@ -236,8 +238,8 @@ namespace AuditTrail
         {
             var insertSql = $@"
                 INSERT INTO [{_options.SchemaName}].[{_options.AuditTableName}]
-                    (TableName, PrimaryKey, Action, UserName, Timestamp, Metadata)
-                VALUES (@TableName, @PrimaryKey, @Action, @UserName, @Timestamp, @Metadata);
+                    (TableName, PrimaryKey, Action, UserName, Timestamp, Metadata, AuditReason, CorrelationId, ChangesJson)
+                VALUES (@TableName, @PrimaryKey, @Action, @UserName, @Timestamp, @Metadata, @AuditReason, @CorrelationId, @ChangesJson);
                 SELECT CAST(SCOPE_IDENTITY() AS BIGINT);";
 
             entry.Id = await conn.ExecuteScalarAsync<long>(insertSql, new
@@ -247,26 +249,28 @@ namespace AuditTrail
                 Action = (int)entry.Action,
                 entry.UserName,
                 entry.Timestamp,
-                entry.Metadata
+                entry.Metadata,
+                entry.AuditReason,
+                entry.CorrelationId,
+                ChangesJson = (_options.StorageMode == AuditStorageMode.SingleTableJson || _options.StorageMode == AuditStorageMode.Both)
+                    ? entry.ChangesJson
+                    : null
             }, tx);
 
-            if (entry.Changes != null && entry.Changes.Count > 0)
+            if (_options.StorageMode != AuditStorageMode.SingleTableJson && entry.Changes != null && entry.Changes.Count > 0)
             {
                 var detailSql = $@"
                     INSERT INTO [{_options.SchemaName}].[{_options.AuditDetailTableName}]
                         (AuditLogId, FieldName, OldValue, NewValue)
                     VALUES (@AuditLogId, @FieldName, @OldValue, @NewValue)";
 
-                foreach (var change in entry.Changes)
+                await conn.ExecuteAsync(detailSql, entry.Changes.Select(change => new
                 {
-                    await conn.ExecuteAsync(detailSql, new
-                    {
-                        AuditLogId = entry.Id,
-                        change.FieldName,
-                        change.OldValue,
-                        change.NewValue
-                    }, tx);
-                }
+                    AuditLogId = entry.Id,
+                    change.FieldName,
+                    change.OldValue,
+                    change.NewValue
+                }), tx);
             }
         }
 
@@ -276,13 +280,16 @@ namespace AuditTrail
                 IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = '{_options.AuditTableName}' AND schema_id = SCHEMA_ID('{_options.SchemaName}'))
                 BEGIN
                     CREATE TABLE [{_options.SchemaName}].[{_options.AuditTableName}] (
-                        Id          BIGINT IDENTITY(1,1) PRIMARY KEY,
-                        TableName   NVARCHAR(256)  NOT NULL,
-                        PrimaryKey  NVARCHAR(256)  NOT NULL,
-                        Action      INT            NOT NULL,
-                        UserName    NVARCHAR(256)  NULL,
-                        Timestamp   DATETIME2      NOT NULL DEFAULT SYSUTCDATETIME(),
-                        Metadata    NVARCHAR(MAX)  NULL
+                        Id             BIGINT IDENTITY(1,1) PRIMARY KEY,
+                        TableName      NVARCHAR(256)  NOT NULL,
+                        PrimaryKey     NVARCHAR(256)  NOT NULL,
+                        Action         INT            NOT NULL,
+                        UserName       NVARCHAR(256)  NULL,
+                        Timestamp      DATETIME2      NOT NULL DEFAULT SYSUTCDATETIME(),
+                        Metadata       NVARCHAR(MAX)  NULL,
+                        AuditReason    NVARCHAR(500)  NULL,
+                        CorrelationId  NVARCHAR(128)  NULL,
+                        ChangesJson    NVARCHAR(MAX)  NULL
                     );
 
                     CREATE NONCLUSTERED INDEX IX_{_options.AuditTableName}_Table_PK
@@ -290,6 +297,18 @@ namespace AuditTrail
 
                     CREATE NONCLUSTERED INDEX IX_{_options.AuditTableName}_Timestamp
                         ON [{_options.SchemaName}].[{_options.AuditTableName}] (Timestamp DESC);
+                END
+                ELSE
+                BEGIN
+                    -- Schema evolution for existing tables
+                    IF COL_LENGTH('[{_options.SchemaName}].[{_options.AuditTableName}]', 'AuditReason') IS NULL
+                        ALTER TABLE [{_options.SchemaName}].[{_options.AuditTableName}] ADD AuditReason NVARCHAR(500) NULL;
+
+                    IF COL_LENGTH('[{_options.SchemaName}].[{_options.AuditTableName}]', 'CorrelationId') IS NULL
+                        ALTER TABLE [{_options.SchemaName}].[{_options.AuditTableName}] ADD CorrelationId NVARCHAR(128) NULL;
+
+                    IF COL_LENGTH('[{_options.SchemaName}].[{_options.AuditTableName}]', 'ChangesJson') IS NULL
+                        ALTER TABLE [{_options.SchemaName}].[{_options.AuditTableName}] ADD ChangesJson NVARCHAR(MAX) NULL;
                 END;
 
                 IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = '{_options.AuditDetailTableName}' AND schema_id = SCHEMA_ID('{_options.SchemaName}'))
