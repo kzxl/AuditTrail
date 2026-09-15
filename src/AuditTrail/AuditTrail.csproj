@@ -1,8 +1,26 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <TargetFramework>netstandard2.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+
+    <!-- Package Metadata -->
+    <PackageId>AuditTrail</PackageId>
+    <Version>1.1.0</Version>
+    <Authors>Phong Võ</Authors>
+    <Company>ZeroUniverse</Company>
+    <Description>High-performance automatic change tracking and audit logging for .NET. Features compiled expression accessors, fast type-specific equality, auto table/PK resolution, and high-throughput SingleTableJson mode.</Description>
+    <PackageTags>audit;audittrail;changetracker;change-tracking;dapper;sqlserver;logging;history;performance</PackageTags>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageProjectUrl>https://github.com/kzxl/AuditTrail</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/kzxl/AuditTrail.git</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
   </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="..\..\README.md" Pack="true" PackagePath="\" />
+  </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="Dapper" Version="2.1.35" />

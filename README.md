@@ -3,7 +3,7 @@
 > **Track who changed what, when, and what the old/new values were — zero config required.**
 
 [![.NET Standard](https://img.shields.io/badge/.NET%20Standard-2.0-blue)](https://docs.microsoft.com/en-us/dotnet/standard/net-standard)
-[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
+[![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 AuditTrail provides **automatic change detection and audit logging** for any .NET application.
 Works with WinForms, ASP.NET, WebAPI, and any .NET Standard 2.0 compatible project.
@@ -14,29 +14,45 @@ Works with WinForms, ASP.NET, WebAPI, and any .NET Standard 2.0 compatible proje
 
 | Feature | Description |
 |---------|-------------|
-| **Auto Change Detection** | Reflection-based diff between entity snapshots |
+| **Compiled Accessors** | High-performance Expression Tree getters (zero Reflection overhead) |
+| **Fast Value Equality** | Direct type comparisons without intermediate string allocations |
+| **Auto Metadata Resolution** | Automatic table name & PK inference (`[Table]`, `[Key]`, `Id`, `{Type}Id`) |
+| **Flexible Storage Modes** | `NormalizedTables`, high-throughput `SingleTableJson`, or `Both` |
+| **Transaction Context** | `AuditReason` and `CorrelationId` for tracing business workflows |
+| **Auto Change Detection** | High-speed diff between entity snapshots or instances |
 | **CRUD Tracking** | Insert, Update, Delete with old/new values |
 | **Field-level Changes** | Each changed field recorded separately |
 | **Table/Field Filtering** | Include/exclude specific tables or fields |
-| **SQL Server Storage** | Auto-creates `AuditLog` + `AuditLogDetail` tables |
+| **SQL Server Storage** | Auto-creates tables with auto schema migration |
 | **In-Memory Store** | For testing without database |
 | **Batch Operations** | Multiple audit entries saved in a single transaction |
 | **Async Support** | `SaveChangesAsync()` for non-blocking writes |
-| **Snapshot Pattern** | Take snapshot → modify → detect changes |
 | **Zero Config** | Works out of the box, customizable via `AuditOptions` |
 
 ---
 
 ## 🚀 Quick Start
 
-### Track an Update
+### Auto-Track Updates (Zero Boilerplate)
 
 ```csharp
 var store = new SqlServerAuditStore(connectionString);
-store.EnsureCreated(); // creates tables if not exist
+store.EnsureCreated(); // creates/updates tables automatically
 
-var audit = new AuditContext(store, currentUser);
+var audit = new AuditContext(store, currentUser)
+{
+    CurrentAuditReason = "Customer requested phone number update",
+    CurrentCorrelationId = "REQ-2026-0042"
+};
 
+// Auto detects table "Products" and primary key "product.Id"
+audit.TrackUpdate(originalProduct, modifiedProduct);
+audit.SaveChanges();
+```
+
+### Track with Explicit Metadata & Snapshots
+
+```csharp
 // Take snapshot before modification
 var snapshot = audit.Snapshot(product);
 
@@ -52,14 +68,24 @@ audit.SaveChanges();
 ### Track Insert/Delete
 
 ```csharp
-// Insert
-audit.TrackInsert(newProduct, "Products", newProduct.Id.ToString());
+// Insert (Auto-inferred PK and table name)
+audit.TrackInsert(newProduct);
 
-// Delete
-audit.TrackDelete(deletedProduct, "Products", deletedProduct.Id.ToString());
+// Delete (Auto-inferred PK and table name)
+audit.TrackDelete(deletedProduct);
 
 // Batch save
 audit.SaveChanges();
+```
+
+### High-Throughput Single-Table Mode
+
+```csharp
+var options = new AuditOptions
+{
+    StorageMode = AuditStorageMode.SingleTableJson // Store changes as JSON in AuditLog.ChangesJson
+};
+var audit = new AuditContext(store, currentUser, options);
 ```
 
 ### Query Audit History
@@ -69,7 +95,7 @@ audit.SaveChanges();
 var history = audit.GetHistory("Products", "42");
 foreach (var entry in history)
 {
-    Console.WriteLine($"[{entry.Timestamp}] {entry.Action} by {entry.UserName}");
+    Console.WriteLine($"[{entry.Timestamp}] {entry.Action} by {entry.UserName} (Reason: {entry.AuditReason})");
     foreach (var change in entry.Changes)
     {
         Console.WriteLine($"  {change.FieldName}: {change.OldValue} → {change.NewValue}");
@@ -85,6 +111,7 @@ var options = new AuditOptions
     ExcludeFields = { "PasswordHash", "Users.SecretKey" },
     ExcludeTables = { "TempTable", "Logs" },
     MaxValueLength = 2000,
+    StorageMode = AuditStorageMode.NormalizedTables // or SingleTableJson, Both
 };
 
 var audit = new AuditContext(store, currentUser, options);
@@ -97,19 +124,26 @@ var audit = new AuditContext(store, currentUser, options);
 ### AuditContext (Main Entry Point)
 
 ```csharp
-Snapshot<T>(entity)                                    // create snapshot
-TrackInsert<T>(entity, table, pk)                      // track new record
-TrackDelete<T>(entity, table, pk)                      // track deleted record
+TrackInsert<T>(entity)                                  // auto-infer table & PK
+TrackInsert<T>(entity, table, pk)                      // track new record explicitly
+TrackDelete<T>(entity)                                  // auto-infer table & PK
+TrackDelete<T>(entity, table, pk)                      // track deleted record explicitly
+TrackUpdate<T>(snapshot, current)                       // auto-infer table & PK
+TrackUpdate<T>(original, modified)                      // auto-infer table & PK
 TrackUpdate(snapshot, current, table, pk)               // track via snapshot
 TrackUpdate(original, modified, table, pk)              // track via comparison
+Snapshot<T>(entity)                                     // create snapshot
 SaveChanges() / SaveChangesAsync()                     // persist to store
-GetHistory(table, pk)                                  // query history
-DiscardChanges()                                       // clear pending
+GetHistory(table, pk)                                   // query history
+DiscardChanges()                                        // clear pending
 ```
 
 ### AuditOptions
 
 ```csharp
+StorageMode         // NormalizedTables (default), SingleTableJson, or Both
+UseCompiledAccessors// Compile property getters with Expression trees (default: true)
+EnableFastEquality  // Fast type-specific equality comparison without strings (default: true)
 IncludeTables       // whitelist (empty = audit all)
 ExcludeTables       // blacklist
 ExcludeFields       // "FieldName" or "Table.FieldName"
@@ -122,7 +156,7 @@ MaxValueLength      // truncate long values (default: 4000)
 
 | Store | Use Case |
 |-------|----------|
-| `SqlServerAuditStore` | Production (SQL Server) |
+| `SqlServerAuditStore` | Production (SQL Server) with auto-migration |
 | `InMemoryAuditStore` | Unit testing |
 | Custom `IAuditStore` | Any backend (MongoDB, file, etc.) |
 
@@ -130,7 +164,7 @@ MaxValueLength      // truncate long values (default: 4000)
 
 ## 🗄️ Database Schema
 
-Auto-created by `EnsureCreated()`:
+Auto-created and migrated by `EnsureCreated()`:
 
 ```
 AuditLog (Header)
@@ -140,9 +174,12 @@ AuditLog (Header)
 ├── Action (INT: 1=Insert, 2=Update, 3=Delete)
 ├── UserName (NVARCHAR 256)
 ├── Timestamp (DATETIME2)
+├── AuditReason (NVARCHAR 500)
+├── CorrelationId (NVARCHAR 100)
+├── ChangesJson (NVARCHAR MAX)
 └── Metadata (NVARCHAR MAX)
 
-AuditLogDetail (Field Changes)
+AuditLogDetail (Field Changes - Optional in SingleTableJson mode)
 ├── Id (BIGINT PK)
 ├── AuditLogId (FK → AuditLog)
 ├── FieldName (NVARCHAR 256)
@@ -154,7 +191,7 @@ AuditLogDetail (Field Changes)
 
 ## 📄 License
 
-Apache License 2.0
+MIT License
 
 ---
 

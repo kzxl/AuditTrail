@@ -17,4 +17,7 @@ Thumbs.db
 
 # NuGet
 *.nupkg
+*.snupkg
+nupkgs/
 packages/
+artifacts/

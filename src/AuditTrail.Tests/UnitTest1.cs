@@ -300,8 +300,9 @@ namespace AuditTrail.Tests
             Assert.Equal("1", history[0].PrimaryKey);
         }
 
+
         [Fact]
-        public async void SaveChangesAsync_Works()
+        public async System.Threading.Tasks.Task SaveChangesAsync_Works()
         {
             var store = new InMemoryAuditStore();
             var audit = new AuditContext(store, "admin");
@@ -326,6 +327,49 @@ namespace AuditTrail.Tests
 
             Assert.Single(store.Entries);
             Assert.Equal(2, store.Entries[0].Changes.Count);
+        }
+
+        [Fact]
+        public void AutoMetadata_InfersTableNameAndPrimaryKey()
+        {
+            var store = new InMemoryAuditStore();
+            var audit = new AuditContext(store, "admin")
+            {
+                CurrentAuditReason = "Price adjustment",
+                CurrentCorrelationId = "TXN-9999"
+            };
+
+            var original = new Product { Id = 42, Name = "Laptop", Price = 1000m };
+            var modified = new Product { Id = 42, Name = "Laptop Pro", Price = 1200m };
+
+            // Pure auto-detection overload: no tableName or primaryKey string specified!
+            audit.TrackUpdate(original, modified);
+            audit.SaveChanges();
+
+            Assert.Single(store.Entries);
+            var entry = store.Entries[0];
+            Assert.Equal("Product", entry.TableName);
+            Assert.Equal("42", entry.PrimaryKey);
+            Assert.Equal("Price adjustment", entry.AuditReason);
+            Assert.Equal("TXN-9999", entry.CorrelationId);
+            Assert.Equal(2, entry.Changes.Count);
+
+            // Test SingleTableJson ChangesJson generation
+            Assert.NotNull(entry.ChangesJson);
+            Assert.Contains("\"Field\":\"Name\"", entry.ChangesJson);
+            Assert.Contains("\"Field\":\"Price\"", entry.ChangesJson);
+        }
+
+        [Fact]
+        public void FastEquals_SameDecimalRepresentations_DetectedAsUnchanged()
+        {
+            // 10.0m and 10.000m have different trailing zeros in string ToString()
+            // but FastEquals should recognize decimal equality without marking as changed.
+            var original = new Product { Id = 1, Name = "Item", Price = 10.0m };
+            var modified = new Product { Id = 1, Name = "Item", Price = 10.000m };
+
+            var entry = ChangeTracker.DetectChanges(original, modified, "Products", "1", "admin");
+            Assert.Null(entry);
         }
     }
 
