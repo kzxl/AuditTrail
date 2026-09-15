@@ -3,7 +3,7 @@
 > **Track who changed what, when, and what the old/new values were — zero config required.**
 
 [![.NET Standard](https://img.shields.io/badge/.NET%20Standard-2.0-blue)](https://docs.microsoft.com/en-us/dotnet/standard/net-standard)
-[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
+[![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 AuditTrail provides **automatic change detection and audit logging** for any .NET application.
 Works with WinForms, ASP.NET, WebAPI, and any .NET Standard 2.0 compatible project.
@@ -191,7 +191,7 @@ AuditLogDetail (Field Changes - Optional in SingleTableJson mode)
 
 ## 📄 License
 
-Apache License 2.0
+MIT License
 
 ---
 

@@ -1,0 +1,55 @@
+name: Publish NuGet Packages (GitHub & NuGet.org)
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+  id-token: write # Required for NuGet.org Trusted Publishing (OIDC)
+
+jobs:
+  publish:
+    name: Build, Pack & Publish NuGet Packages
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup .NET SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Pack AuditTrail
+        run: dotnet pack src/AuditTrail/AuditTrail.csproj -c Release -o nupkgs
+
+      # 1. Push to GitHub Packages
+      - name: Push to GitHub Packages
+        shell: pwsh
+        run: |
+          Get-ChildItem -Path nupkgs -Filter *.nupkg | ForEach-Object {
+            Write-Host "Pushing $($_.Name) to GitHub Packages..."
+            dotnet nuget push $_.FullName --source "https://nuget.pkg.github.com/kzxl/index.json" --api-key ${{ secrets.GITHUB_TOKEN }} --skip-duplicate
+          }
+
+      # 2. NuGet.org Trusted Publishing (OIDC Token Exchange)
+      - name: NuGet.org Login (OIDC Trusted Publishing)
+        uses: NuGet/login@v1
+        id: nuget-login
+        continue-on-error: true
+        with:
+          user: ${{ secrets.NUGET_USER || 'kzxl' }}
+
+      # 3. Push to NuGet.org
+      - name: Push to NuGet.org (Trusted Publishing)
+        if: steps.nuget-login.outputs.NUGET_API_KEY != ''
+        shell: pwsh
+        run: |
+          Get-ChildItem -Path nupkgs -Filter *.nupkg | ForEach-Object {
+            Write-Host "Pushing $($_.Name) to NuGet.org via Trusted Publishing..."
+            dotnet nuget push $_.FullName --source "https://api.nuget.org/v3/index.json" --api-key ${{ steps.nuget-login.outputs.NUGET_API_KEY }} --skip-duplicate
+          }
